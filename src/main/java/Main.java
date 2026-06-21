@@ -178,7 +178,25 @@ public class Main {
             }
 
             if (executable != null) {
-                ProcessBuilder pb = new ProcessBuilder(Arrays.asList(parts));
+                List<String> commandParts = new ArrayList<>();
+
+                boolean quotedExecutable =
+                        cmd.contains(" ") ||
+                        cmd.contains("\"") ||
+                        cmd.contains("'") ||
+                        cmd.contains("\\");
+
+                if (quotedExecutable) {
+                    commandParts.add(executable.getAbsolutePath());
+                } else {
+                    commandParts.add(cmd);
+                }
+
+                for (int i = 1; i < parts.length; i++) {
+                    commandParts.add(parts[i]);
+                }
+
+                ProcessBuilder pb = new ProcessBuilder(commandParts);
                 pb.directory(currentDirectory);
                 pb.inheritIO();
 

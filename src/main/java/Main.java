@@ -192,100 +192,173 @@ public class Main {
             }
             if (parts.length == 0) continue;
 
-            // --- Pipeline Detection ---
-            int pipeIndex = -1;
-            for (int i = 0; i < parts.length; i++) {
-                if (parts[i].equals("|")) { pipeIndex = i; break; }
+            // --- Pipeline Detection (supports any number of stages) ---
+            List<String[]> stageArgsList = new ArrayList<>();
+            List<String> currentStage = new ArrayList<>();
+            for (String token : parts) {
+                if (token.equals("|")) {
+                    stageArgsList.add(currentStage.toArray(new String[0]));
+                    currentStage = new ArrayList<>();
+                } else {
+                    currentStage.add(token);
+                }
             }
+            stageArgsList.add(currentStage.toArray(new String[0]));
 
-            if (pipeIndex != -1) {
-                String[] parts1 = new String[pipeIndex];
-                System.arraycopy(parts, 0, parts1, 0, pipeIndex);
-                String[] parts2 = new String[parts.length - pipeIndex - 1];
-                System.arraycopy(parts, pipeIndex + 1, parts2, 0, parts2.length);
+            if (stageArgsList.size() > 1) {
+                int n = stageArgsList.size();
 
-                RedirectionResult red1 = parseRedirections(parts1);
-                RedirectionResult red2 = parseRedirections(parts2);
+                RedirectionResult[] reds = new RedirectionResult[n];
+                for (int i = 0; i < n; i++) {
+                    reds[i] = parseRedirections(stageArgsList.get(i));
+                    touchRedirectionFiles(reds[i]);
+                }
 
-                touchRedirectionFiles(red1);
-                touchRedirectionFiles(red2);
-
-                PipedOutputStream pipeOut = new PipedOutputStream();
-                PipedInputStream pipeIn = new PipedInputStream(pipeOut);
+                // Connect consecutive stages with piped streams.
+                // pipeOuts[i] / pipeIns[i] connect stage i's output to stage i+1's input.
+                PipedOutputStream[] pipeOuts = new PipedOutputStream[n - 1];
+                PipedInputStream[] pipeIns = new PipedInputStream[n - 1];
+                for (int i = 0; i < n - 1; i++) {
+                    pipeOuts[i] = new PipedOutputStream();
+                    pipeIns[i] = new PipedInputStream(pipeOuts[i]);
+                }
 
                 File currentDirFinal = currentDirectory;
+                Thread[] stageThreads = new Thread[n];
 
-                Thread stage1Thread = new Thread(() -> {
-                    try (PrintStream outStream = new PrintStream(pipeOut, true)) {
-                        if (isBuiltIn(red1.cleanedArgs[0])) {
-                            executeBuiltIn(red1.cleanedArgs, System.in, outStream, currentDirFinal, backgroundJobs);
-                        } else {
-                            File exec1 = findExecutable(red1.cleanedArgs[0]);
-                            if (exec1 == null) {
-                                System.err.println(red1.cleanedArgs[0] + ": command not found");
-                                return;
-                            }
-                            ProcessBuilder pb1 = new ProcessBuilder(red1.cleanedArgs).directory(currentDirFinal);
-                            pb1.redirectInput(ProcessBuilder.Redirect.INHERIT);
-                            pb1.redirectOutput(ProcessBuilder.Redirect.PIPE);
-                            Process p1 = pb1.start();
+                for (int i = 0; i < n; i++) {
+                    final int stageIdx = i;
+                    final RedirectionResult red = reds[i];
+                    final InputStream stageIn = (i == 0) ? null : pipeIns[i - 1];
+                    final boolean isFirstStage = (i == 0);
+                    final boolean isLastStage = (i == n - 1);
+                    final PipedOutputStream nextPipeOut = isLastStage ? null : pipeOuts[i];
 
-                            try (InputStream procOut = p1.getInputStream()) {
-                                flushTransfer(procOut, outStream);
-                            }
-                            p1.waitFor();
-                        }
-                    } catch (Exception e) {
-                        // Quiet exit
-                    }
-                });
-
-                Thread stage2Thread = new Thread(() -> {
-                    try {
-                        PrintStream destinationOut = System.out;
-                        if (red2.outputFile != null) {
-                            destinationOut = new PrintStream(new FileOutputStream(red2.outputFile, red2.appendOutput), true);
-                        }
-
-                        if (isBuiltIn(red2.cleanedArgs[0])) {
-                            executeBuiltIn(red2.cleanedArgs, pipeIn, destinationOut, currentDirFinal, backgroundJobs);
-                        } else {
-                            File exec2 = findExecutable(red2.cleanedArgs[0]);
-                            if (exec2 == null) {
-                                System.err.println(red2.cleanedArgs[0] + ": command not found");
-                                return;
-                            }
-                            ProcessBuilder pb2 = new ProcessBuilder(red2.cleanedArgs).directory(currentDirFinal);
-                            pb2.redirectInput(ProcessBuilder.Redirect.PIPE);
-                            
-                            if (red2.outputFile != null) {
-                                pb2.redirectOutput(red2.appendOutput ? ProcessBuilder.Redirect.appendTo(new File(red2.outputFile)) : ProcessBuilder.Redirect.to(new File(red2.outputFile)));
+                    stageThreads[i] = new Thread(() -> {
+                        PrintStream outStream = null;
+                        try {
+                            // Resolve this stage's output destination.
+                            if (isLastStage) {
+                                if (red.outputFile != null) {
+                                    outStream = new PrintStream(
+                                            new FileOutputStream(red.outputFile, red.appendOutput), true);
+                                } else {
+                                    outStream = System.out;
+                                }
                             } else {
-                                pb2.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+                                outStream = new PrintStream(nextPipeOut, true);
                             }
 
-                            Process p2 = pb2.start();
-
-                            try (OutputStream procIn = p2.getOutputStream()) {
-                                flushTransfer(pipeIn, procIn);
+                            if (red.cleanedArgs.length == 0) {
+                                return;
                             }
-                            p2.waitFor();
+
+                            if (isBuiltIn(red.cleanedArgs[0])) {
+                                if (stageIn != null) {
+                                    // Builtins never read stdin themselves; drain and
+                                    // discard whatever the upstream stage sent so it
+                                    // doesn't block trying to write into a full pipe.
+                                    byte[] discardBuffer = new byte[1024];
+                                    while (stageIn.read(discardBuffer) != -1) {
+                                        // discard
+                                    }
+                                }
+                                executeBuiltIn(red.cleanedArgs, stageIn, outStream, currentDirFinal, backgroundJobs);
+                            } else {
+                                File exec = findExecutable(red.cleanedArgs[0]);
+                                if (exec == null) {
+                                    System.err.println(red.cleanedArgs[0] + ": command not found");
+                                    return;
+                                }
+
+                                ProcessBuilder pb = new ProcessBuilder(red.cleanedArgs).directory(currentDirFinal);
+
+                                if (isFirstStage) {
+                                    pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
+                                } else {
+                                    pb.redirectInput(ProcessBuilder.Redirect.PIPE);
+                                }
+
+                                if (isLastStage) {
+                                    if (red.outputFile != null) {
+                                        pb.redirectOutput(red.appendOutput
+                                                ? ProcessBuilder.Redirect.appendTo(new File(red.outputFile))
+                                                : ProcessBuilder.Redirect.to(new File(red.outputFile)));
+                                    } else {
+                                        pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+                                    }
+                                } else {
+                                    pb.redirectOutput(ProcessBuilder.Redirect.PIPE);
+                                }
+
+                                if (isLastStage) {
+                                    if (red.errorFile != null) {
+                                        pb.redirectError(red.appendError
+                                                ? ProcessBuilder.Redirect.appendTo(new File(red.errorFile))
+                                                : ProcessBuilder.Redirect.to(new File(red.errorFile)));
+                                    } else {
+                                        pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+                                    }
+                                } else {
+                                    pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+                                }
+
+                                Process process = pb.start();
+
+                                // Feed this process's stdin from the previous stage, if any.
+                                Thread feeder = null;
+                                if (!isFirstStage) {
+                                    final InputStream finalStageIn = stageIn;
+                                    feeder = new Thread(() -> {
+                                        try (OutputStream procIn = process.getOutputStream()) {
+                                            flushTransfer(finalStageIn, procIn);
+                                        } catch (Exception e) {
+                                            // Broken pipe / process exited early; nothing to do.
+                                        }
+                                    });
+                                    feeder.start();
+                                }
+
+                                // Drain this process's stdout into the next stage, unless
+                                // it's the last stage (where INHERIT/file redirect already
+                                // routes its stdout directly without us copying anything).
+                                if (!isLastStage) {
+                                    try (InputStream procOut = process.getInputStream()) {
+                                        flushTransfer(procOut, outStream);
+                                    }
+                                }
+
+                                process.waitFor();
+
+                                if (feeder != null) {
+                                    feeder.join();
+                                }
+                            }
+                        } catch (Exception e) {
+                            // Quiet exit: broken pipe / missing file / interrupted thread.
+                        } finally {
+                            if (!isLastStage && outStream != null) {
+                                outStream.flush();
+                                outStream.close();
+                            } else if (isLastStage && red.outputFile != null && outStream != null) {
+                                outStream.close();
+                            }
                         }
-                        if (red2.outputFile != null) destinationOut.close();
-                    } catch (Exception e) {
-                        // Quiet exit
-                    }
-                });
+                    });
+                }
 
-                stage1Thread.start();
-                stage2Thread.start();
+                for (Thread t : stageThreads) {
+                    t.start();
+                }
 
                 if (!runInBackground) {
-                    stage1Thread.join();
-                    stage2Thread.join();
+                    for (Thread t : stageThreads) {
+                        t.join();
+                    }
                 }
                 continue;
             }
+
 
             // --- Single Command Path ---
             RedirectionResult red = parseRedirections(parts);

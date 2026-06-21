@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 
 public class Main {
 
@@ -80,12 +81,19 @@ public class Main {
 
             String outputFile = null;
             String errorFile = null;
+            boolean appendOutput = false;
             List<String> cleaned = new ArrayList<>();
 
             for (int i = 0; i < parts.length; i++) {
                 if ((parts[i].equals(">") || parts[i].equals("1>"))
                         && i + 1 < parts.length) {
                     outputFile = parts[i + 1];
+                    appendOutput = false;
+                    i++;
+                } else if ((parts[i].equals(">>") || parts[i].equals("1>>"))
+                        && i + 1 < parts.length) {
+                    outputFile = parts[i + 1];
+                    appendOutput = true;
                     i++;
                 } else if (parts[i].equals("2>")
                         && i + 1 < parts.length) {
@@ -112,10 +120,18 @@ public class Main {
                 String output = currentDirectory.getCanonicalPath();
 
                 if (outputFile != null) {
-                    Files.write(
-                            Paths.get(outputFile),
-                            (output + System.lineSeparator()).getBytes()
-                    );
+                    if (appendOutput) {
+                        Files.write(
+                                Paths.get(outputFile),
+                                (output + System.lineSeparator()).getBytes(),
+                                StandardOpenOption.CREATE, StandardOpenOption.APPEND
+                        );
+                    } else {
+                        Files.write(
+                                Paths.get(outputFile),
+                                (output + System.lineSeparator()).getBytes()
+                        );
+                    }
                 } else {
                     System.out.println(output);
                 }
@@ -172,10 +188,18 @@ public class Main {
                 }
 
                 if (outputFile != null) {
-                    Files.write(
-                            Paths.get(outputFile),
-                            (sb.toString() + System.lineSeparator()).getBytes()
-                    );
+                    if (appendOutput) {
+                        Files.write(
+                                Paths.get(outputFile),
+                                (sb.toString() + System.lineSeparator()).getBytes(),
+                                StandardOpenOption.CREATE, StandardOpenOption.APPEND
+                        );
+                    } else {
+                        Files.write(
+                                Paths.get(outputFile),
+                                (sb.toString() + System.lineSeparator()).getBytes()
+                        );
+                    }
                 } else {
                     System.out.println(sb);
                 }
@@ -219,10 +243,18 @@ public class Main {
                 }
 
                 if (outputFile != null) {
-                    Files.write(
-                            Paths.get(outputFile),
-                            (result + System.lineSeparator()).getBytes()
-                    );
+                    if (appendOutput) {
+                        Files.write(
+                                Paths.get(outputFile),
+                                (result + System.lineSeparator()).getBytes(),
+                                StandardOpenOption.CREATE, StandardOpenOption.APPEND
+                        );
+                    } else {
+                        Files.write(
+                                Paths.get(outputFile),
+                                (result + System.lineSeparator()).getBytes()
+                        );
+                    }
                 } else {
                     System.out.println(result);
                 }
@@ -271,7 +303,11 @@ public class Main {
                 pb.directory(currentDirectory);
 
                 if (outputFile != null) {
-                    pb.redirectOutput(new File(outputFile));
+                    if (appendOutput) {
+                        pb.redirectOutput(ProcessBuilder.Redirect.appendTo(new File(outputFile)));
+                    } else {
+                        pb.redirectOutput(new File(outputFile));
+                    }
                 } else {
                     pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
                 }

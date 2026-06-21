@@ -26,7 +26,13 @@ public class Main {
             if (command.startsWith("cd ")) {
                 String path = command.substring(3);
 
-                File target = new File(path);
+                File target;
+
+                if (new File(path).isAbsolute()) {
+                    target = new File(path);
+                } else {
+                    target = new File(currentDirectory, path);
+                }
 
                 if (target.exists() && target.isDirectory()) {
                     currentDirectory = target.getCanonicalFile();

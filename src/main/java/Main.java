@@ -1,8 +1,39 @@
 import java.util.Scanner;
 import java.io.File;
 import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.List;
 
 public class Main {
+
+    private static String[] parseCommand(String input) {
+        List<String> args = new ArrayList<>();
+
+        StringBuilder current = new StringBuilder();
+        boolean inSingleQuotes = false;
+
+        for (int i = 0; i < input.length(); i++) {
+            char c = input.charAt(i);
+
+            if (c == '\'') {
+                inSingleQuotes = !inSingleQuotes;
+            } else if (Character.isWhitespace(c) && !inSingleQuotes) {
+                if (current.length() > 0) {
+                    args.add(current.toString());
+                    current.setLength(0);
+                }
+            } else {
+                current.append(c);
+            }
+        }
+
+        if (current.length() > 0) {
+            args.add(current.toString());
+        }
+
+        return args.toArray(new String[0]);
+    }
+
     public static void main(String[] args) throws Exception {
         Scanner scanner = new Scanner(System.in);
 
@@ -14,17 +45,29 @@ public class Main {
 
             String command = scanner.nextLine();
 
-            if (command.equals("exit")) {
+            String[] parts = parseCommand(command);
+
+            if (parts.length == 0) {
+                continue;
+            }
+
+            String cmd = parts[0];
+
+            if (cmd.equals("exit")) {
                 break;
             }
 
-            if (command.equals("pwd")) {
+            if (cmd.equals("pwd")) {
                 System.out.println(currentDirectory.getCanonicalPath());
                 continue;
             }
 
-            if (command.startsWith("cd ")) {
-                String path = command.substring(3);
+            if (cmd.equals("cd")) {
+                if (parts.length < 2) {
+                    continue;
+                }
+
+                String path = parts[1];
                 File target;
 
                 if (path.equals("~")) {
@@ -44,21 +87,31 @@ public class Main {
                 continue;
             }
 
-            if (command.startsWith("echo ")) {
-                System.out.println(command.substring(5));
+            if (cmd.equals("echo")) {
+                for (int i = 1; i < parts.length; i++) {
+                    if (i > 1) {
+                        System.out.print(" ");
+                    }
+                    System.out.print(parts[i]);
+                }
+                System.out.println();
                 continue;
             }
 
-            if (command.startsWith("type ")) {
-                String cmd = command.substring(5);
+            if (cmd.equals("type")) {
+                if (parts.length < 2) {
+                    continue;
+                }
 
-                if (cmd.equals("echo") ||
-                    cmd.equals("exit") ||
-                    cmd.equals("type") ||
-                    cmd.equals("pwd") ||
-                    cmd.equals("cd")) {
+                String targetCmd = parts[1];
 
-                    System.out.println(cmd + " is a shell builtin");
+                if (targetCmd.equals("echo") ||
+                    targetCmd.equals("exit") ||
+                    targetCmd.equals("type") ||
+                    targetCmd.equals("pwd") ||
+                    targetCmd.equals("cd")) {
+
+                    System.out.println(targetCmd + " is a shell builtin");
                     continue;
                 }
 
@@ -68,24 +121,21 @@ public class Main {
                 boolean found = false;
 
                 for (String path : paths) {
-                    File file = new File(path, cmd);
+                    File file = new File(path, targetCmd);
 
                     if (file.exists() && file.isFile() && file.canExecute()) {
-                        System.out.println(cmd + " is " + file.getAbsolutePath());
+                        System.out.println(targetCmd + " is " + file.getAbsolutePath());
                         found = true;
                         break;
                     }
                 }
 
                 if (!found) {
-                    System.out.println(cmd + ": not found");
+                    System.out.println(targetCmd + ": not found");
                 }
 
                 continue;
             }
-
-            String[] parts = command.split(" ");
-            String cmd = parts[0];
 
             String pathEnv = System.getenv("PATH");
             String[] paths = pathEnv.split(File.pathSeparator);

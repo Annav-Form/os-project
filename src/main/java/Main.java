@@ -79,12 +79,17 @@ public class Main {
             }
 
             String outputFile = null;
+            String errorFile = null;
             List<String> cleaned = new ArrayList<>();
 
             for (int i = 0; i < parts.length; i++) {
                 if ((parts[i].equals(">") || parts[i].equals("1>"))
                         && i + 1 < parts.length) {
                     outputFile = parts[i + 1];
+                    i++;
+                } else if (parts[i].equals("2>")
+                        && i + 1 < parts.length) {
+                    errorFile = parts[i + 1];
                     i++;
                 } else {
                     cleaned.add(parts[i]);
@@ -114,6 +119,11 @@ public class Main {
                 } else {
                     System.out.println(output);
                 }
+
+                if (errorFile != null) {
+                    Files.write(Paths.get(errorFile), new byte[0]);
+                }
+
                 continue;
             }
 
@@ -136,7 +146,16 @@ public class Main {
                 if (target.exists() && target.isDirectory()) {
                     currentDirectory = target.getCanonicalFile();
                 } else {
-                    System.out.println("cd: " + path + ": No such file or directory");
+                    String err = "cd: " + path + ": No such file or directory";
+
+                    if (errorFile != null) {
+                        Files.write(
+                                Paths.get(errorFile),
+                                (err + System.lineSeparator()).getBytes()
+                        );
+                    } else {
+                        System.out.println(err);
+                    }
                 }
 
                 continue;
@@ -159,6 +178,10 @@ public class Main {
                     );
                 } else {
                     System.out.println(sb);
+                }
+
+                if (errorFile != null) {
+                    Files.write(Paths.get(errorFile), new byte[0]);
                 }
 
                 continue;
@@ -204,6 +227,10 @@ public class Main {
                     System.out.println(result);
                 }
 
+                if (errorFile != null) {
+                    Files.write(Paths.get(errorFile), new byte[0]);
+                }
+
                 continue;
             }
 
@@ -246,15 +273,28 @@ public class Main {
                 if (outputFile != null) {
                     pb.redirectOutput(new File(outputFile));
                 } else {
-                    pb.inheritIO();
+                    pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
                 }
 
-                pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+                if (errorFile != null) {
+                    pb.redirectError(new File(errorFile));
+                } else {
+                    pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+                }
 
                 Process process = pb.start();
                 process.waitFor();
             } else {
-                System.out.println(command + ": command not found");
+                String err = command + ": command not found";
+
+                if (errorFile != null) {
+                    Files.write(
+                            Paths.get(errorFile),
+                            (err + System.lineSeparator()).getBytes()
+                    );
+                } else {
+                    System.out.println(err);
+                }
             }
         }
     }

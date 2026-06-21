@@ -79,6 +79,139 @@ public class Main {
         return args.toArray(new String[0]);
     }
 
+    // Splits the raw input line into pipeline segments on unquoted '|' characters.
+    // A '|' inside single or double quotes is treated as a literal character, not a pipe operator.
+    private static List<String> splitPipeline(String input) {
+        List<String> segments = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        boolean inSingleQuotes = false;
+        boolean inDoubleQuotes = false;
+
+        for (int i = 0; i < input.length(); i++) {
+            char c = input.charAt(i);
+
+            if (inDoubleQuotes && c == '\\') {
+                // Preserve escape sequences as-is; parseCommand() will interpret them later.
+                current.append(c);
+                if (i + 1 < input.length()) {
+                    current.append(input.charAt(i + 1));
+                    i++;
+                }
+            } else if (!inSingleQuotes && !inDoubleQuotes && c == '\\') {
+                current.append(c);
+                if (i + 1 < input.length()) {
+                    current.append(input.charAt(i + 1));
+                    i++;
+                }
+            } else if (c == '\'' && !inDoubleQuotes) {
+                inSingleQuotes = !inSingleQuotes;
+                current.append(c);
+            } else if (c == '"' && !inSingleQuotes) {
+                inDoubleQuotes = !inDoubleQuotes;
+                current.append(c);
+            } else if (c == '|' && !inSingleQuotes && !inDoubleQuotes) {
+                segments.add(current.toString());
+                current.setLength(0);
+            } else {
+                current.append(c);
+            }
+        }
+
+        segments.add(current.toString());
+        return segments;
+    }
+
+    // Executes a pipeline of two or more external commands, connecting each
+    // command's stdout to the next command's stdin using ProcessBuilder.startPipeline,
+    // which sets up real OS-level pipes (no manual streaming/copying needed).
+    private static void runPipeline(List<String> rawSegments, File currentDirectory) throws Exception {
+        List<ProcessBuilder> builders = new ArrayList<>();
+
+        String pathEnv = System.getenv("PATH");
+        String[] searchPaths = (pathEnv != null) ? pathEnv.split(File.pathSeparator) : new String[0];
+
+        for (String rawSegment : rawSegments) {
+            String[] segmentParts = parseCommand(rawSegment.trim());
+
+            if (segmentParts.length == 0) {
+                // Empty segment (e.g. trailing "|" with nothing after it); nothing to run.
+                continue;
+            }
+
+            String segmentCmd = segmentParts[0];
+
+            File executable = null;
+            for (String dir : searchPaths) {
+                File candidate = new File(dir, segmentCmd);
+                if (candidate.exists() && candidate.isFile() && candidate.canExecute()) {
+                    executable = candidate;
+                    break;
+                }
+            }
+
+            if (executable == null) {
+                System.out.println(segmentCmd + ": command not found");
+                return;
+            }
+
+            List<String> commandParts = new ArrayList<>();
+
+            boolean quotedExecutable =
+                    segmentCmd.contains(" ") ||
+                    segmentCmd.contains("\"") ||
+                    segmentCmd.contains("'") ||
+                    segmentCmd.contains("\\");
+
+            if (quotedExecutable) {
+                commandParts.add(executable.getAbsolutePath());
+            } else {
+                commandParts.add(segmentCmd);
+            }
+
+            for (int i = 1; i < segmentParts.length; i++) {
+                commandParts.add(segmentParts[i]);
+            }
+
+            ProcessBuilder pb = new ProcessBuilder(commandParts);
+            pb.directory(currentDirectory);
+            builders.add(pb);
+        }
+
+        if (builders.isEmpty()) {
+            return;
+        }
+
+        // Every process in the middle of the pipeline needs its stdout piped to
+        // the next process's stdin. Only the first process's stdin and the last
+        // process's stdout/stderr should connect to the real terminal.
+        for (int i = 0; i < builders.size(); i++) {
+            ProcessBuilder pb = builders.get(i);
+
+            if (i > 0) {
+                pb.redirectInput(ProcessBuilder.Redirect.PIPE);
+            } else {
+                pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
+            }
+
+            if (i < builders.size() - 1) {
+                pb.redirectOutput(ProcessBuilder.Redirect.PIPE);
+            } else {
+                pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+            }
+
+            pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+        }
+
+        List<Process> processes = ProcessBuilder.startPipeline(builders);
+
+        // Wait for every process in the pipeline to finish, mirroring how a real
+        // shell waits on the entire pipeline (not just the last command) before
+        // showing the next prompt.
+        for (Process process : processes) {
+            process.waitFor();
+        }
+    }
+
     public static void main(String[] args) throws Exception {
         Scanner scanner = new Scanner(System.in);
 
@@ -121,6 +254,13 @@ public class Main {
             System.out.flush();
 
             String command = scanner.nextLine();
+
+            List<String> pipelineSegments = splitPipeline(command);
+
+            if (pipelineSegments.size() > 1) {
+                runPipeline(pipelineSegments, currentDirectory);
+                continue;
+            }
 
             String[] parts = parseCommand(command);
 

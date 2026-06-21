@@ -25,10 +25,11 @@ public class Main {
 
             if (command.startsWith("cd ")) {
                 String path = command.substring(3);
-
                 File target;
 
-                if (new File(path).isAbsolute()) {
+                if (path.equals("~")) {
+                    target = new File(System.getenv("HOME"));
+                } else if (new File(path).isAbsolute()) {
                     target = new File(path);
                 } else {
                     target = new File(currentDirectory, path);

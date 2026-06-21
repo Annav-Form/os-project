@@ -234,6 +234,27 @@ public class Main {
                 continue;
             }
 
+            if (cmd.equals("jobs")) {
+                // Empty implementation as requested, but still handles standard redirection
+                if (outputFile != null) {
+                    if (appendOutput) {
+                        Files.write(Paths.get(outputFile), new byte[0], StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                    } else {
+                        Files.write(Paths.get(outputFile), new byte[0]);
+                    }
+                }
+
+                if (errorFile != null) {
+                    if (appendError) {
+                        Files.write(Paths.get(errorFile), new byte[0], StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                    } else {
+                        Files.write(Paths.get(errorFile), new byte[0]);
+                    }
+                }
+
+                continue;
+            }
+
             if (cmd.equals("type")) {
                 if (parts.length < 2) {
                     continue;
@@ -246,7 +267,8 @@ public class Main {
                     targetCmd.equals("exit") ||
                     targetCmd.equals("type") ||
                     targetCmd.equals("pwd") ||
-                    targetCmd.equals("cd")) {
+                    targetCmd.equals("cd") ||
+                    targetCmd.equals("jobs")) {
 
                     result = targetCmd + " is a shell builtin";
                 } else {

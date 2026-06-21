@@ -82,6 +82,7 @@ public class Main {
             String outputFile = null;
             String errorFile = null;
             boolean appendOutput = false;
+            boolean appendError = false;
             List<String> cleaned = new ArrayList<>();
 
             for (int i = 0; i < parts.length; i++) {
@@ -98,6 +99,12 @@ public class Main {
                 } else if (parts[i].equals("2>")
                         && i + 1 < parts.length) {
                     errorFile = parts[i + 1];
+                    appendError = false;
+                    i++;
+                } else if (parts[i].equals("2>>")
+                        && i + 1 < parts.length) {
+                    errorFile = parts[i + 1];
+                    appendError = true;
                     i++;
                 } else {
                     cleaned.add(parts[i]);
@@ -137,7 +144,11 @@ public class Main {
                 }
 
                 if (errorFile != null) {
-                    Files.write(Paths.get(errorFile), new byte[0]);
+                    if (appendError) {
+                        Files.write(Paths.get(errorFile), new byte[0], StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                    } else {
+                        Files.write(Paths.get(errorFile), new byte[0]);
+                    }
                 }
 
                 continue;
@@ -165,10 +176,18 @@ public class Main {
                     String err = "cd: " + path + ": No such file or directory";
 
                     if (errorFile != null) {
-                        Files.write(
-                                Paths.get(errorFile),
-                                (err + System.lineSeparator()).getBytes()
-                        );
+                        if (appendError) {
+                            Files.write(
+                                    Paths.get(errorFile),
+                                    (err + System.lineSeparator()).getBytes(),
+                                    StandardOpenOption.CREATE, StandardOpenOption.APPEND
+                            );
+                        } else {
+                            Files.write(
+                                    Paths.get(errorFile),
+                                    (err + System.lineSeparator()).getBytes()
+                            );
+                        }
                     } else {
                         System.out.println(err);
                     }
@@ -205,7 +224,11 @@ public class Main {
                 }
 
                 if (errorFile != null) {
-                    Files.write(Paths.get(errorFile), new byte[0]);
+                    if (appendError) {
+                        Files.write(Paths.get(errorFile), new byte[0], StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                    } else {
+                        Files.write(Paths.get(errorFile), new byte[0]);
+                    }
                 }
 
                 continue;
@@ -260,7 +283,11 @@ public class Main {
                 }
 
                 if (errorFile != null) {
-                    Files.write(Paths.get(errorFile), new byte[0]);
+                    if (appendError) {
+                        Files.write(Paths.get(errorFile), new byte[0], StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                    } else {
+                        Files.write(Paths.get(errorFile), new byte[0]);
+                    }
                 }
 
                 continue;
@@ -313,7 +340,11 @@ public class Main {
                 }
 
                 if (errorFile != null) {
-                    pb.redirectError(new File(errorFile));
+                    if (appendError) {
+                        pb.redirectError(ProcessBuilder.Redirect.appendTo(new File(errorFile)));
+                    } else {
+                        pb.redirectError(new File(errorFile));
+                    }
                 } else {
                     pb.redirectError(ProcessBuilder.Redirect.INHERIT);
                 }
@@ -324,10 +355,18 @@ public class Main {
                 String err = command + ": command not found";
 
                 if (errorFile != null) {
-                    Files.write(
-                            Paths.get(errorFile),
-                            (err + System.lineSeparator()).getBytes()
-                    );
+                    if (appendError) {
+                        Files.write(
+                                Paths.get(errorFile),
+                                (err + System.lineSeparator()).getBytes(),
+                                StandardOpenOption.CREATE, StandardOpenOption.APPEND
+                        );
+                    } else {
+                        Files.write(
+                                Paths.get(errorFile),
+                                (err + System.lineSeparator()).getBytes()
+                        );
+                    }
                 } else {
                     System.out.println(err);
                 }

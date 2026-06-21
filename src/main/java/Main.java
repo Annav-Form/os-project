@@ -268,10 +268,22 @@ public class Main {
 
             if (cmd.equals("jobs")) {
                 StringBuilder jobsOutput = new StringBuilder();
-                for (BackgroundJob job : backgroundJobs) {
+                int numJobs = backgroundJobs.size();
+
+                for (int i = 0; i < numJobs; i++) {
+                    BackgroundJob job = backgroundJobs.get(i);
+                    
+                    // Determine the marker depending on context inside the list sequence
+                    char marker = ' ';
+                    if (i == numJobs - 1) {
+                        marker = '+';
+                    } else if (i == numJobs - 2) {
+                        marker = '-';
+                    }
+
                     // %-24s left-aligns and pads the status string to 24 characters
                     String formattedStatus = String.format("%-24s", job.status);
-                    jobsOutput.append(String.format("[%d]+  %s%s%n", job.jobId, formattedStatus, job.command));
+                    jobsOutput.append(String.format("[%d]%c  %s%s%n", job.jobId, marker, formattedStatus, job.command));
                 }
                 String output = jobsOutput.toString();
 

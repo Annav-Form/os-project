@@ -8,6 +8,21 @@ import java.nio.file.StandardOpenOption;
 
 public class Main {
 
+    // Helper class to track background job data
+    static class BackgroundJob {
+        int jobId;
+        long pid;
+        String status;
+        String command;
+
+        public BackgroundJob(int jobId, long pid, String status, String command) {
+            this.jobId = jobId;
+            this.pid = pid;
+            this.status = status;
+            this.command = command;
+        }
+    }
+
     private static String[] parseCommand(String input) {
         List<String> args = new ArrayList<>();
 
@@ -66,6 +81,9 @@ public class Main {
         Scanner scanner = new Scanner(System.in);
 
         File currentDirectory = new File(System.getProperty("user.dir"));
+        
+        // List to hold active background jobs
+        List<BackgroundJob> backgroundJobs = new ArrayList<>();
 
         while (true) {
             System.out.print("$ ");
@@ -74,6 +92,20 @@ public class Main {
             String command = scanner.nextLine();
 
             String[] parts = parseCommand(command);
+
+            if (parts.length == 0) {
+                continue;
+            }
+
+            boolean runInBackground = false;
+            if (parts[parts.length - 1].equals("&")) {
+                runInBackground = true;
+                
+                // Remove the '&' token from the arguments execution array
+                String[] newParts = new String[parts.length - 1];
+                System.arraycopy(parts, 0, newParts, 0, parts.length - 1);
+                parts = newParts;
+            }
 
             if (parts.length == 0) {
                 continue;
@@ -235,13 +267,22 @@ public class Main {
             }
 
             if (cmd.equals("jobs")) {
-                // Empty implementation as requested, but still handles standard redirection
+                StringBuilder jobsOutput = new StringBuilder();
+                for (BackgroundJob job : backgroundJobs) {
+                    // %-24s left-aligns and pads the status string to 24 characters
+                    String formattedStatus = String.format("%-24s", job.status);
+                    jobsOutput.append(String.format("[%d]+  %s%s%n", job.jobId, formattedStatus, job.command));
+                }
+                String output = jobsOutput.toString();
+
                 if (outputFile != null) {
                     if (appendOutput) {
-                        Files.write(Paths.get(outputFile), new byte[0], StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                        Files.write(Paths.get(outputFile), output.getBytes(), StandardOpenOption.CREATE, StandardOpenOption.APPEND);
                     } else {
-                        Files.write(Paths.get(outputFile), new byte[0]);
+                        Files.write(Paths.get(outputFile), output.getBytes());
                     }
+                } else {
+                    System.out.print(output);
                 }
 
                 if (errorFile != null) {
@@ -372,7 +413,17 @@ public class Main {
                 }
 
                 Process process = pb.start();
-                process.waitFor();
+                
+                if (runInBackground) {
+                    int nextJobId = backgroundJobs.size() + 1;
+                    System.out.printf("[%d] %d%n", nextJobId, process.pid());
+                    
+                    // Track this background job internally
+                    backgroundJobs.add(new BackgroundJob(nextJobId, process.pid(), "Running", command));
+                } else {
+                    process.waitFor();
+                }
+
             } else {
                 String err = command + ": command not found";
 

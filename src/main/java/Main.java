@@ -1,8 +1,9 @@
 import java.util.Scanner;
 import java.io.File;
-import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.List;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 
 public class Main {
 
@@ -77,6 +78,25 @@ public class Main {
                 continue;
             }
 
+            String outputFile = null;
+            List<String> cleaned = new ArrayList<>();
+
+            for (int i = 0; i < parts.length; i++) {
+                if ((parts[i].equals(">") || parts[i].equals("1>"))
+                        && i + 1 < parts.length) {
+                    outputFile = parts[i + 1];
+                    i++;
+                } else {
+                    cleaned.add(parts[i]);
+                }
+            }
+
+            parts = cleaned.toArray(new String[0]);
+
+            if (parts.length == 0) {
+                continue;
+            }
+
             String cmd = parts[0];
 
             if (cmd.equals("exit")) {
@@ -84,7 +104,16 @@ public class Main {
             }
 
             if (cmd.equals("pwd")) {
-                System.out.println(currentDirectory.getCanonicalPath());
+                String output = currentDirectory.getCanonicalPath();
+
+                if (outputFile != null) {
+                    Files.write(
+                            Paths.get(outputFile),
+                            (output + System.lineSeparator()).getBytes()
+                    );
+                } else {
+                    System.out.println(output);
+                }
                 continue;
             }
 
@@ -114,13 +143,24 @@ public class Main {
             }
 
             if (cmd.equals("echo")) {
+                StringBuilder sb = new StringBuilder();
+
                 for (int i = 1; i < parts.length; i++) {
                     if (i > 1) {
-                        System.out.print(" ");
+                        sb.append(" ");
                     }
-                    System.out.print(parts[i]);
+                    sb.append(parts[i]);
                 }
-                System.out.println();
+
+                if (outputFile != null) {
+                    Files.write(
+                            Paths.get(outputFile),
+                            (sb.toString() + System.lineSeparator()).getBytes()
+                    );
+                } else {
+                    System.out.println(sb);
+                }
+
                 continue;
             }
 
@@ -130,6 +170,7 @@ public class Main {
                 }
 
                 String targetCmd = parts[1];
+                String result;
 
                 if (targetCmd.equals("echo") ||
                     targetCmd.equals("exit") ||
@@ -137,27 +178,30 @@ public class Main {
                     targetCmd.equals("pwd") ||
                     targetCmd.equals("cd")) {
 
-                    System.out.println(targetCmd + " is a shell builtin");
-                    continue;
-                }
+                    result = targetCmd + " is a shell builtin";
+                } else {
+                    String pathEnv = System.getenv("PATH");
+                    String[] paths = pathEnv.split(File.pathSeparator);
 
-                String pathEnv = System.getenv("PATH");
-                String[] paths = pathEnv.split(File.pathSeparator);
+                    result = targetCmd + ": not found";
 
-                boolean found = false;
+                    for (String path : paths) {
+                        File file = new File(path, targetCmd);
 
-                for (String path : paths) {
-                    File file = new File(path, targetCmd);
-
-                    if (file.exists() && file.isFile() && file.canExecute()) {
-                        System.out.println(targetCmd + " is " + file.getAbsolutePath());
-                        found = true;
-                        break;
+                        if (file.exists() && file.isFile() && file.canExecute()) {
+                            result = targetCmd + " is " + file.getAbsolutePath();
+                            break;
+                        }
                     }
                 }
 
-                if (!found) {
-                    System.out.println(targetCmd + ": not found");
+                if (outputFile != null) {
+                    Files.write(
+                            Paths.get(outputFile),
+                            (result + System.lineSeparator()).getBytes()
+                    );
+                } else {
+                    System.out.println(result);
                 }
 
                 continue;
@@ -198,7 +242,14 @@ public class Main {
 
                 ProcessBuilder pb = new ProcessBuilder(commandParts);
                 pb.directory(currentDirectory);
-                pb.inheritIO();
+
+                if (outputFile != null) {
+                    pb.redirectOutput(new File(outputFile));
+                } else {
+                    pb.inheritIO();
+                }
+
+                pb.redirectError(ProcessBuilder.Redirect.INHERIT);
 
                 Process process = pb.start();
                 process.waitFor();

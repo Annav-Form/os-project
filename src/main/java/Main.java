@@ -14,12 +14,14 @@ public class Main {
         long pid;
         String status;
         String command;
+        Process process; // Reference to the actual process for life-cycle tracking
 
-        public BackgroundJob(int jobId, long pid, String status, String command) {
+        public BackgroundJob(int jobId, long pid, String status, String command, Process process) {
             this.jobId = jobId;
             this.pid = pid;
             this.status = status;
             this.command = command;
+            this.process = process;
         }
     }
 
@@ -267,13 +269,19 @@ public class Main {
             }
 
             if (cmd.equals("jobs")) {
+                // First, check and update statuses of background processes asynchronously
+                for (BackgroundJob job : backgroundJobs) {
+                    if (job.status.equals("Running") && !job.process.isAlive()) {
+                        job.status = "Done";
+                    }
+                }
+
                 StringBuilder jobsOutput = new StringBuilder();
                 int numJobs = backgroundJobs.size();
 
                 for (int i = 0; i < numJobs; i++) {
                     BackgroundJob job = backgroundJobs.get(i);
                     
-                    // Determine the marker depending on context inside the list sequence
                     char marker = ' ';
                     if (i == numJobs - 1) {
                         marker = '+';
@@ -281,9 +289,14 @@ public class Main {
                         marker = '-';
                     }
 
-                    // %-24s left-aligns and pads the status string to 24 characters
+                    // Done status omits the trailing '&', Running status keeps it
+                    String displayCommand = job.command;
+                    if (job.status.equals("Running")) {
+                        displayCommand += " &";
+                    }
+
                     String formattedStatus = String.format("%-24s", job.status);
-                    jobsOutput.append(String.format("[%d]%c  %s%s%n", job.jobId, marker, formattedStatus, job.command));
+                    jobsOutput.append(String.format("[%d]%c  %s%s%n", job.jobId, marker, formattedStatus, displayCommand));
                 }
                 String output = jobsOutput.toString();
 
@@ -304,6 +317,9 @@ public class Main {
                         Files.write(Paths.get(errorFile), new byte[0]);
                     }
                 }
+
+                // Reap finalized 'Done' jobs from the data structure so subsequent calls do not show them
+                backgroundJobs.removeIf(job -> job.status.equals("Done"));
 
                 continue;
             }
@@ -430,8 +446,14 @@ public class Main {
                     int nextJobId = backgroundJobs.size() + 1;
                     System.out.printf("[%d] %d%n", nextJobId, process.pid());
                     
-                    // Track this background job internally
-                    backgroundJobs.add(new BackgroundJob(nextJobId, process.pid(), "Running", command));
+                    // Clean trailing '&' out of the stored tracking string safely
+                    String cleanedCommand = command.trim();
+                    if (cleanedCommand.endsWith("&")) {
+                        cleanedCommand = cleanedCommand.substring(0, cleanedCommand.length() - 1).trim();
+                    }
+                    
+                    // Track background process reference explicitly
+                    backgroundJobs.add(new BackgroundJob(nextJobId, process.pid(), "Running", cleanedCommand, process));
                 } else {
                     process.waitFor();
                 }
